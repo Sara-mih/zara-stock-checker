@@ -20,8 +20,6 @@ BASE_DIR = Path(__file__).parent
 PRODUCTS_FILE = BASE_DIR / "products.json"
 STATE_FILE = BASE_DIR / "state.json"
 
-# Frazi koi ukazuvaat deka nesto e OUT OF STOCK (na razlicni jazici, Zara koristi razlicni
-# vo zavisnost od regionot). Ako ne go najdeme copy na mk, padame na en/es kako fallback.
 OUT_OF_STOCK_HINTS = [
     "sold out",
     "agotado",
@@ -73,6 +71,28 @@ def send_email(subject: str, body: str):
     print(f"Email sent: {subject}")
 
 
+def accept_cookies_if_present(page):
+    """Zara (i povekjeto EU sajtovi) prikazuvaat cookie banner koj mora da se zatvori
+    pred ostatokot od stranata da e klikabilen/vidliv."""
+    selectors = [
+        "#onetrust-accept-btn-handler",
+        "button#onetrust-accept-btn-handler",
+        "button:has-text('Accept')",
+        "button:has-text('Прифати')",
+        "button:has-text('Accept all')",
+    ]
+    for sel in selectors:
+        try:
+            btn = page.query_selector(sel)
+            if btn:
+                btn.click(timeout=2000)
+                page.wait_for_timeout(500)
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def check_product(page, product: dict):
     """
     Vrakja True (dostapno), False (nedostapno) ili None (ne mozevme da utvrdime -
@@ -82,7 +102,15 @@ def check_product(page, product: dict):
     size = product.get("size")
 
     page.goto(url, timeout=60000, wait_until="domcontentloaded")
-    page.wait_for_timeout(3500)  # da se vcitaat JS elementite
+    page.wait_for_timeout(2000)
+    accept_cookies_if_present(page)
+    page.wait_for_timeout(3000)
+
+    title = page.title()
+    content_lower = page.content().lower()
+    print(f"  [debug] title='{title}' content_length={len(content_lower)}")
+    if "captcha" in content_lower or "access denied" in content_lower:
+        print("  [debug] IZGLEDA DEKA E BLOKIRANO (captcha/access denied vo stranata)")
 
     if size:
         buttons = page.query_selector_all("button, li, div[role='button']")
@@ -102,13 +130,11 @@ def check_product(page, product: dict):
                     or "sold" in cls
                 )
                 return not is_disabled
-        # Ne go najdovme kopcheto za taa golemina - nesigurno
         return None
     else:
-        content = page.content().lower()
-        if any(h in content for h in OUT_OF_STOCK_HINTS):
+        if any(h in content_lower for h in OUT_OF_STOCK_HINTS):
             return False
-        if any(h in content for h in IN_STOCK_HINTS):
+        if any(h in content_lower for h in IN_STOCK_HINTS):
             return True
         return None
 
