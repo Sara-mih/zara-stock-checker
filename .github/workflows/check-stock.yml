@@ -1,0 +1,41 @@
+name: Zara Stock Check
+
+on:
+  schedule:
+    # Секои 30 минути. GitHub понекогаш доцни неколку минути при висока нагазеност.
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  check-stock:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Run stock check
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+        run: python check_stock.py
+
+      - name: Commit updated state
+        run: |
+          git config user.name "zara-stock-bot"
+          git config user.email "actions@github.com"
+          git add state.json
+          git diff --quiet --cached || git commit -m "Update stock state [skip ci]"
+          git push
